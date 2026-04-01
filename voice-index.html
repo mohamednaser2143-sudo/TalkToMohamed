@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Voice Chat</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0a14;--surface:#12121e;--border:#1e1e30;--text:#e0e0f0;--dim:#555;--accent:#6c5ce7;--accent2:#a29bfe;--green:#10b981;--red:#ef4444;--radius:14px}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'Nunito',sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:32px;width:100%;max-width:400px;text-align:center}
+.logo{font-size:2.5rem;margin-bottom:4px}
+h1{font-size:1.5rem;font-weight:800;margin-bottom:4px}
+.sub{color:var(--dim);font-size:.82rem;margin-bottom:24px}
+.fg{margin-bottom:14px;text-align:left}
+.fg label{display:block;font-size:.7rem;color:var(--dim);margin-bottom:4px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.fg input{width:100%;padding:11px 14px;border:2px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font-family:'Nunito',sans-serif;font-size:.95rem;outline:none}
+.fg input:focus{border-color:var(--accent)}
+.btn{width:100%;padding:13px;border:none;border-radius:var(--radius);font-family:'Nunito',sans-serif;font-weight:800;font-size:.95rem;cursor:pointer;transition:all .15s;margin-bottom:8px}
+.btn-accent{background:var(--accent);color:#fff}.btn-accent:hover{filter:brightness(1.15)}
+.btn-dark{background:var(--border);color:var(--text)}.btn-dark:hover{background:#2a2a40}
+.btn-red{background:var(--red);color:#fff}
+.btn-green{background:var(--green);color:#fff}
+.dv{text-align:center;color:var(--dim);margin:16px 0;font-size:.78rem;position:relative}
+.dv::before,.dv::after{content:'';position:absolute;top:50%;width:35%;height:1px;background:var(--border)}.dv::before{left:0}.dv::after{right:0}
+.code{font-family:monospace;font-size:2.2rem;letter-spacing:8px;color:var(--accent2);margin:8px 0;padding:10px;background:var(--bg);border-radius:var(--radius);border:2px dashed var(--accent)}
+
+/* ROOM VIEW */
+.room-card{max-width:500px}
+.members{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:20px 0}
+.member{background:var(--bg);border:2px solid var(--border);border-radius:16px;padding:14px 18px;text-align:center;min-width:100px;transition:all .2s}
+.member.speaking{border-color:var(--green);box-shadow:0 0 16px rgba(16,185,129,.2)}
+.member .avatar{width:48px;height:48px;border-radius:50%;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-size:1.5rem}
+.member .mname{font-weight:700;font-size:.85rem}
+.member .mstatus{font-size:.68rem;color:var(--dim);margin-top:2px}
+.member.muted .mstatus{color:var(--red)}
+
+.controls{display:flex;gap:10px;justify-content:center;margin-top:16px}
+.ctrl-btn{width:56px;height:56px;border-radius:50%;border:none;font-size:1.3rem;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center}
+.ctrl-btn:active{transform:scale(.9)}
+.ctrl-btn.mic{background:var(--green);color:#fff}
+.ctrl-btn.mic.off{background:var(--red)}
+.ctrl-btn.leave{background:var(--red);color:#fff}
+
+.toast-box{position:fixed;top:14px;right:14px;z-index:200;display:flex;flex-direction:column;gap:5px}
+.toast{padding:9px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);font-size:.8rem;font-weight:600;animation:si .3s}
+@keyframes si{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+
+#menu-view{display:block}
+#room-view{display:none}
+</style>
+</head>
+<body>
+
+<div class="card" id="menu-view">
+  <div class="logo">🎙️</div>
+  <h1>Voice Chat</h1>
+  <div class="sub">Free voice rooms — no download needed</div>
+  <div class="fg"><label>Your Name</label><input id="my-name" maxlength="16" placeholder="Enter name"></div>
+  <button class="btn btn-accent" onclick="createRoom()">Create Room</button>
+  <div class="dv">or join</div>
+  <div class="fg"><label>Room Code</label><input id="join-code" maxlength="5" placeholder="5-letter code" style="text-transform:uppercase"></div>
+  <button class="btn btn-dark" onclick="joinRoom()">Join Room</button>
+</div>
+
+<div class="card room-card" id="room-view">
+  <div class="logo">🎙️</div>
+  <h1 id="room-title">Voice Room</h1>
+  <div class="code" id="room-code">-----</div>
+  <div class="sub">Share this code with friends</div>
+  <div class="members" id="members"></div>
+  <div class="controls">
+    <button class="ctrl-btn mic" id="mic-btn" onclick="toggleMic()">🎤</button>
+    <button class="ctrl-btn leave" onclick="leaveRoom()">📞</button>
+  </div>
+</div>
+
+<div class="toast-box" id="tb"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+firebase.initializeApp({apiKey:"AIzaSyASPNSXdFs2B3X8mbUq-nBYlgAIR7BSx6E",authDomain:"fortuna-64c00.firebaseapp.com",databaseURL:"https://fortuna-64c00-default-rtdb.firebaseio.com",projectId:"fortuna-64c00",storageBucket:"fortuna-64c00.firebasestorage.app",messagingSenderId:"329218105683",appId:"1:329218105683:web:6b16fd2b1091531e4481a6"});
+const db=firebase.database(),RT='voicechat';
+
+const ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]};
+const COLORS=['#6c5ce7','#00b894','#e17055','#fdcb6e','#0984e3','#e84393','#00cec9','#fab1a0'];
+
+let myId=null,myName='',roomId=null,roomRef=null;
+let localStream=null,muted=false;
+let peers={};// {peerId: {pc, audio}}
+let members={};
+
+function genCode(){const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let r='';for(let i=0;i<5;i++)r+=c[~~(Math.random()*c.length)];return r}
+
+// ═══ GET MIC ═══
+async function getMic(){
+  try{
+    localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+    return true;
+  }catch(e){
+    toast('Microphone access denied');return false;
+  }
+}
+
+// ═══ CREATE ROOM ═══
+async function createRoom(){
+  myName=document.getElementById('my-name').value.trim()||'Unknown';
+  if(!await getMic())return;
+  myId='u_'+Date.now()+'_'+Math.random().toString(36).substr(2,5);
+  roomId=genCode();roomRef=db.ref(RT+'/'+roomId);
+  await roomRef.child('members/'+myId).set({name:myName,joined:Date.now(),color:COLORS[0]});
+  roomRef.child('members/'+myId).onDisconnect().remove();
+  enterRoom();
+}
+
+// ═══ JOIN ROOM ═══
+async function joinRoom(){
+  myName=document.getElementById('my-name').value.trim()||'Unknown';
+  const code=document.getElementById('join-code').value.trim().toUpperCase();
+  if(!code)return toast('Enter a code');
+  if(!await getMic())return;
+
+  const snap=await db.ref(RT+'/'+code+'/members').once('value');
+  if(!snap.exists())return toast('Room not found');
+  const count=Object.keys(snap.val()||{}).length;
+  if(count>=8)return toast('Room full (max 8)');
+
+  myId='u_'+Date.now()+'_'+Math.random().toString(36).substr(2,5);
+  roomId=code;roomRef=db.ref(RT+'/'+roomId);
+  const color=COLORS[count%COLORS.length];
+  await roomRef.child('members/'+myId).set({name:myName,joined:Date.now(),color});
+  roomRef.child('members/'+myId).onDisconnect().remove();
+  enterRoom();
+}
+
+// ═══ ENTER ROOM ═══
+function enterRoom(){
+  document.getElementById('menu-view').style.display='none';
+  document.getElementById('room-view').style.display='block';
+  document.getElementById('room-code').textContent=roomId;
+
+  // Listen for members
+  roomRef.child('members').on('value',snap=>{
+    const newMembers=snap.val()||{};
+    // Check for new members to connect to
+    Object.keys(newMembers).forEach(id=>{
+      if(id!==myId&&!peers[id]){
+        // New peer — create connection
+        connectToPeer(id,true);
+      }
+    });
+    // Check for removed members
+    Object.keys(peers).forEach(id=>{
+      if(!newMembers[id])disconnectPeer(id);
+    });
+    members=newMembers;
+    renderMembers();
+  });
+
+  // Listen for signaling offers/answers/ice directed at me
+  roomRef.child('signals/'+myId).on('child_added',snap=>{
+    const data=snap.val();
+    if(!data)return;
+    handleSignal(data);
+    snap.ref.remove();// clean up after processing
+  });
+}
+
+// ═══ WEBRTC ═══
+function connectToPeer(peerId,initiator){
+  const pc=new RTCPeerConnection(ICE);
+  peers[peerId]={pc,audio:null};
+
+  // Add local stream
+  if(localStream){
+    localStream.getTracks().forEach(track=>pc.addTrack(track,localStream));
+  }
+
+  // Handle remote stream
+  pc.ontrack=e=>{
+    const audio=new Audio();
+    audio.srcObject=e.streams[0];
+    audio.autoplay=true;
+    peers[peerId].audio=audio;
+  };
+
+  // ICE candidates
+  pc.onicecandidate=e=>{
+    if(e.candidate){
+      roomRef.child('signals/'+peerId).push({
+        from:myId,type:'ice',candidate:e.candidate.toJSON()
+      });
+    }
+  };
+
+  pc.onconnectionstatechange=()=>{
+    if(pc.connectionState==='disconnected'||pc.connectionState==='failed'){
+      disconnectPeer(peerId);
+    }
+  };
+
+  // If initiator, create offer
+  if(initiator){
+    pc.createOffer().then(offer=>{
+      pc.setLocalDescription(offer);
+      roomRef.child('signals/'+peerId).push({
+        from:myId,type:'offer',sdp:offer.sdp
+      });
+    });
+  }
+}
+
+async function handleSignal(data){
+  const{from,type}=data;
+  if(!from||from===myId)return;
+
+  // Ensure peer connection exists
+  if(!peers[from])connectToPeer(from,false);
+  const pc=peers[from]?.pc;
+  if(!pc)return;
+
+  try{
+    if(type==='offer'){
+      await pc.setRemoteDescription(new RTCSessionDescription({type:'offer',sdp:data.sdp}));
+      const answer=await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      roomRef.child('signals/'+from).push({
+        from:myId,type:'answer',sdp:answer.sdp
+      });
+    }else if(type==='answer'){
+      await pc.setRemoteDescription(new RTCSessionDescription({type:'answer',sdp:data.sdp}));
+    }else if(type==='ice'){
+      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    }
+  }catch(e){console.error('Signal error:',e)}
+}
+
+function disconnectPeer(peerId){
+  if(peers[peerId]){
+    peers[peerId].pc.close();
+    if(peers[peerId].audio){peers[peerId].audio.srcObject=null}
+    delete peers[peerId];
+  }
+}
+
+// ═══ RENDER MEMBERS ═══
+function renderMembers(){
+  const container=document.getElementById('members');
+  container.innerHTML='';
+  Object.entries(members).forEach(([id,m])=>{
+    const isMe=id===myId;
+    const d=document.createElement('div');
+    d.className='member'+(isMe&&muted?' muted':'');
+    d.innerHTML=`
+      <div class="avatar" style="background:${m.color||'#555'}">${m.name.charAt(0).toUpperCase()}</div>
+      <div class="mname">${m.name}${isMe?' (You)':''}</div>
+      <div class="mstatus">${isMe?(muted?'🔇 Muted':'🎤 Speaking'):'🎤 Connected'}</div>
+    `;
+    container.appendChild(d);
+  });
+}
+
+// ═══ MUTE/UNMUTE ═══
+function toggleMic(){
+  if(!localStream)return;
+  muted=!muted;
+  localStream.getAudioTracks().forEach(t=>t.enabled=!muted);
+  const btn=document.getElementById('mic-btn');
+  btn.className='ctrl-btn mic'+(muted?' off':'');
+  btn.textContent=muted?'🔇':'🎤';
+  renderMembers();
+}
+
+// ═══ LEAVE ═══
+function leaveRoom(){
+  // Clean up peers
+  Object.keys(peers).forEach(id=>disconnectPeer(id));
+  // Stop local stream
+  if(localStream){localStream.getTracks().forEach(t=>t.stop());localStream=null}
+  // Remove from Firebase
+  if(roomRef&&myId){
+    roomRef.child('members/'+myId).remove();
+    roomRef.child('signals/'+myId).remove();
+    roomRef.off();
+  }
+  // Reset UI
+  document.getElementById('menu-view').style.display='block';
+  document.getElementById('room-view').style.display='none';
+  peers={};members={};muted=false;
+  document.getElementById('mic-btn').className='ctrl-btn mic';
+  document.getElementById('mic-btn').textContent='🎤';
+}
+
+function toast(m){const c=document.getElementById('tb'),t=document.createElement('div');t.className='toast';t.textContent=m;c.appendChild(t);setTimeout(()=>t.remove(),3000)}
+</script>
+</body>
+</html>
